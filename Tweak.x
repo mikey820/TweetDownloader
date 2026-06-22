@@ -500,6 +500,18 @@ static void twdl_layoutButton(UIView *statusView) {
 - (void)viewDidAppear:(BOOL)animated { %orig; twdl_ensureSlideButton(self); }
 %end
 
+// DIAGNOSTIC: log which VC hosts fullscreen video.
+%hook UIViewController
+- (void)viewDidAppear:(BOOL)animated {
+    %orig;
+    NSString *cn = NSStringFromClass(self.class);
+    if ([cn containsString:@"Immersive"] || [cn containsString:@"Video"] || [cn containsString:@"Player"] ||
+        [cn containsString:@"Slideshow"] || [cn containsString:@"Gallery"] || [cn containsString:@"Media"] ||
+        [cn containsString:@"AVPlayer"] || [cn containsString:@"Fullscreen"] || [cn containsString:@"FullScreen"])
+        TWLOG(@"VC appeared: %@", cn);
+}
+%end
+
 %ctor {
     TWLOG(@"TweetDownloader loaded into %@", NSBundle.mainBundle.bundleIdentifier);
 }
