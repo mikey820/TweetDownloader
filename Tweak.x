@@ -312,34 +312,51 @@ static BOOL twdl_hasMedia(id statusView) {
     return m.count > 0;
 }
 
+// Resolve one media entity (TFSTwitterEntityMedia) to a downloadable item.
+static TWDLItem *twdl_itemForMedia(id media) {
+    if (!media) return nil;
+    id vinfo = twdl_try(media, @[@"videoInfo"]);
+    if (vinfo) {
+        NSURL *vurl = nil;
+        @try {
+            if ([vinfo respondsToSelector:@selector(highestBitrateVideoVariantURLWithContentType:andMaximumBitrate:)])
+                vurl = [(TWDLVideoInfo *)vinfo highestBitrateVideoVariantURLWithContentType:@"video/mp4" andMaximumBitrate:LLONG_MAX];
+        } @catch (__unused NSException *e) {}
+        if (!vurl) {
+            NSString *p = twdl_try(vinfo, @[@"primaryUrl", @"url"]);
+            if (p) vurl = [NSURL URLWithString:p];
+        }
+        if (vurl) { TWDLItem *it = [TWDLItem new]; it.url = vurl; it.kind = TWDLKindVideo; return it; }
+    }
+    NSString *purl = twdl_try(media, @[@"mediaURL", @"mediaUrl", @"url"]);
+    NSURL *u = twdl_origPhotoURL(purl);
+    if (u) { TWDLItem *it = [TWDLItem new]; it.url = u; it.kind = TWDLKindPhoto; return it; }
+    return nil;
+}
+
 static NSArray<TWDLItem *> *twdl_itemsForStatusView(id statusView) {
     NSMutableArray<TWDLItem *> *items = [NSMutableArray new];
-    NSArray *entities = twdl_mediaEntities(statusView);
-    for (id media in entities) {
-        // video?
-        id vinfo = twdl_try(media, @[@"videoInfo"]);
-        if (vinfo) {
-            NSURL *vurl = nil;
-            @try {
-                if ([vinfo respondsToSelector:@selector(highestBitrateVideoVariantURLWithContentType:andMaximumBitrate:)])
-                    vurl = [(TWDLVideoInfo *)vinfo highestBitrateVideoVariantURLWithContentType:@"video/mp4" andMaximumBitrate:LLONG_MAX];
-            } @catch (__unused NSException *e) {}
-            if (!vurl) {
-                NSString *p = twdl_try(vinfo, @[@"primaryUrl", @"url"]);
-                if (p) vurl = [NSURL URLWithString:p];
-            }
-            if (vurl) {
-                TWDLItem *it = [TWDLItem new]; it.url = vurl; it.kind = TWDLKindVideo; [items addObject:it];
-                continue;
-            }
-        }
-        // photo
-        NSString *purl = twdl_try(media, @[@"mediaURL", @"mediaUrl", @"url"]);
-        NSURL *u = twdl_origPhotoURL(purl);
-        if (u) { TWDLItem *it = [TWDLItem new]; it.url = u; it.kind = TWDLKindPhoto; [items addObject:it]; }
+    for (id media in twdl_mediaEntities(statusView)) {
+        TWDLItem *it = twdl_itemForMedia(media);
+        if (it) [items addObject:it];
     }
     TWLOG(@"extracted %lu item(s) from %@", (unsigned long)items.count, [statusView class]);
     return items;
+}
+
+// The single media entity currently displayed in the fullscreen slideshow viewer.
+static id twdl_currentSlideMedia(UIViewController *vc) {
+    id current = twdl_try(vc, @[@"currentSlide"]);
+    id media = twdl_try(current, @[@"media"]);
+    if (!media) { id vm = twdl_try(current, @[@"viewModel", @"slideViewModel"]); media = twdl_try(vm, @[@"media"]); }
+    if (!media) {
+        id status = twdl_try(vc, @[@"slideStatus"]);
+        NSArray *ents = twdl_try(status, @[@"mediaEntities", @"allMediaEntities", @"representedMediaEntities", @"media"]);
+        NSInteger idx = 0; @try { idx = [[vc valueForKey:@"slideIndex"] integerValue]; } @catch (__unused NSException *e) {}
+        if ([ents isKindOfClass:NSArray.class] && idx >= 0 && idx < (NSInteger)ents.count) media = ents[idx];
+    }
+    TWLOG(@"slideshow current media=%@ (slide=%@)", [media class], [current class]);
+    return media;
 }
 
 // ---------------------------------------------------------------------------
@@ -360,6 +377,44 @@ static UIButton *twdl_button(UIView *statusView) {
     [[TWDLManager shared] enqueueItems:items];
 }
 @end
+
+// Download button for the fullscreen slideshow viewer (downloads the slide you're on).
+@interface TWDLSlideButton : UIButton
+@property (nonatomic, weak) UIViewController *vc;
+@end
+@implementation TWDLSlideButton
+- (void)tap {
+    TWDLItem *it = twdl_itemForMedia(twdl_currentSlideMedia(self.vc));
+    [[TWDLManager shared] enqueueItems:(it ? @[it] : @[])];
+}
+@end
+
+static char kSlideBtnKey;
+static void twdl_ensureSlideButton(UIViewController *vc) {
+    UIView *root = vc.view;
+    if (!root) return;
+    TWDLSlideButton *b = objc_getAssociatedObject(vc, &kSlideBtnKey);
+    if (!b) {
+        b = [TWDLSlideButton buttonWithType:UIButtonTypeSystem];
+        b.vc = vc;
+        if (@available(iOS 13, *)) {
+            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightSemibold];
+            UIImage *img = [[UIImage systemImageNamed:@"arrow.down.circle.fill" withConfiguration:cfg]
+                            imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+            [b setImage:img forState:UIControlStateNormal];
+        }
+        b.tintColor = UIColor.whiteColor;
+        b.layer.shadowColor = UIColor.blackColor.CGColor;   // stay visible over any media
+        b.layer.shadowOpacity = 0.5; b.layer.shadowRadius = 3; b.layer.shadowOffset = CGSizeZero;
+        [b addTarget:b action:@selector(tap) forControlEvents:UIControlEventTouchUpInside];
+        [root addSubview:b];
+        objc_setAssociatedObject(vc, &kSlideBtnKey, b, OBJC_ASSOCIATION_ASSIGN);
+    }
+    CGFloat size = 42;
+    CGFloat top = root.safeAreaInsets.top; if (top < 20) top = 44;
+    b.frame = CGRectMake(root.bounds.size.width - size - 10, top + 2, size, size);
+    [root bringSubviewToFront:b];
+}
 
 static void twdl_ensureButton(UIView *statusView) {
     UIButton *existing = twdl_button(statusView);
@@ -418,6 +473,7 @@ static void twdl_layoutButton(UIView *statusView) {
 @interface T1TweetDetailsFocalStatusView : UIView @end
 @interface T1ConversationFocalStatusView : UIView @end
 @interface T1SlideshowStatusView : UIView @end
+@interface T1SlideshowViewController : UIViewController @end
 
 %hook T1StandardStatusView
 - (void)setViewModel:(id)vm options:(NSUInteger)o account:(id)a { %orig; twdl_ensureButton(self); }
@@ -437,6 +493,11 @@ static void twdl_layoutButton(UIView *statusView) {
 %hook T1SlideshowStatusView
 - (void)setViewModel:(id)vm options:(NSUInteger)o account:(id)a { %orig; twdl_ensureButton(self); }
 - (void)layoutSubviews { %orig; twdl_ensureButton(self); twdl_layoutButton(self); }
+%end
+
+%hook T1SlideshowViewController
+- (void)viewDidLayoutSubviews { %orig; twdl_ensureSlideButton(self); }
+- (void)viewDidAppear:(BOOL)animated { %orig; twdl_ensureSlideButton(self); }
 %end
 
 %ctor {
