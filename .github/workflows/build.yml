@@ -1,0 +1,52 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Theos
+        run: |
+          export THEOS=${{ github.workspace }}/theos
+          echo "THEOS=$THEOS" >> $GITHUB_ENV
+          brew install ldid dpkg
+          git clone --recursive https://github.com/theos/theos.git $THEOS --depth 1
+          curl -fsSL \
+            "https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz" \
+            -o sdks.tar.xz
+          mkdir -p "$THEOS/sdks"
+          tar -xJf sdks.tar.xz -C "$THEOS/sdks"
+          rm sdks.tar.xz
+
+      - name: Build .deb
+        run: make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TweetDownloader-deb
+          path: packages/*.deb
+          if-no-files-found: error
+
+      - name: Publish to Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          cp packages/*.deb packages/TweetDownloader-arm64.deb
+          gh release create "$TAG" --title "TweetDownloader $TAG" \
+            --notes "Always-on top-right download button for Twitter/X. Best-quality photo/video to camera roll. Twitter 11.93, Dopamine rootless (arm64/arm64e)." \
+            2>/dev/null || true
+          gh release upload "$TAG" packages/TweetDownloader-arm64.deb --clobber

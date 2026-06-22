@@ -1,0 +1,9 @@
+Package: com.mikey820.tweetdownloader
+Name: TweetDownloader
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: Always-on, one-tap, best-quality media downloader for Twitter/X. Adds a download button at the top-right of every tweet with media; saves photos at :orig quality and videos at the highest-bitrate mp4 straight to the camera roll, no confirmation, with a download percentage at the top-left.
+Maintainer: mikey820
+Author: mikey820
+Section: Tweaks
+Depends: ellekit | mobilesubstrate
