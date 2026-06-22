@@ -352,19 +352,37 @@ static NSArray<TWDLItem *> *twdl_itemsForStatusView(id statusView) {
 @end
 
 // Pull a media entity out of an immersive card view.
+// Read a (Swift) object ivar directly by name — KVC valueForKey: misses Swift stored properties.
+static id twdl_ivar(id obj, const char *name) {
+    if (!obj || !name) return nil;
+    Ivar iv = class_getInstanceVariable([obj class], name);
+    if (!iv) return nil;
+    @try { return object_getIvar(obj, iv); } @catch (__unused NSException *e) { return nil; }
+}
+
+// Pick the video (or first) media entity from a status / view-model object.
+static id twdl_mediaFromStatus(id st) {
+    NSArray *e = twdl_try(st, @[@"representedMediaEntities", @"mediaEntities", @"allMediaEntities", @"media"]);
+    if (![e isKindOfClass:NSArray.class]) return nil;
+    for (id m in e) { if (twdl_try(m, @[@"videoInfo"])) return m; }   // prefer the video
+    return e.count ? e.firstObject : nil;
+}
+
 static id twdl_mediaFromCard(id card) {
+    if (!card) return nil;
     id media = twdl_try(card, @[@"media", @"mediaEntity"]);
+    if (media) return media;
+
+    id status = twdl_try(card, @[@"status"]); if (!status) status = twdl_ivar(card, "status");
+    id vm = twdl_ivar(card, "viewModel"); if (!vm) vm = twdl_try(card, @[@"viewModel"]);
+    TWLOG(@"card status=%@ vm=%@", [status class], [vm class]);
+
+    media = twdl_try(vm, @[@"media", @"mediaEntity"]);
+    if (!media) media = twdl_mediaFromStatus(status);
     if (!media) {
-        id vm = twdl_try(card, @[@"viewModel"]);
-        media = twdl_try(vm, @[@"media", @"mediaEntity"]);
-        if (!media) {
-            id st = twdl_try(vm, @[@"status", @"statusItem", @"tweet"]);
-            NSArray *e = twdl_try(st, @[@"representedMediaEntities", @"mediaEntities", @"allMediaEntities", @"media"]);
-            if ([e isKindOfClass:NSArray.class]) {
-                for (id m in e) { if (twdl_try(m, @[@"videoInfo"])) { media = m; break; } }
-                if (!media && e.count) media = e.firstObject;
-            }
-        }
+        id st = twdl_try(vm, @[@"status", @"statusItem", @"tweet"]);
+        if (!st) st = twdl_ivar(vm, "status");
+        media = twdl_mediaFromStatus(st);
     }
     return media;
 }
@@ -437,7 +455,13 @@ static id twdl_immersiveMedia(UIViewController *container) {
         TWLOG(@"immersive: %lu card(s), screenMid=%.0f visible=%@", (unsigned long)cards.count, screenMid, [card class]);
     }
 
-    if (card) { twdl_dumpObject(card, @"immersiveCard"); media = twdl_mediaFromCard(card); }
+    if (card) {
+        id st = twdl_try(card, @[@"status"]); if (!st) st = twdl_ivar(card, "status");
+        id vm = twdl_ivar(card, "viewModel"); if (!vm) vm = twdl_try(card, @[@"viewModel"]);
+        twdl_dumpObject(st, @"card.status");
+        twdl_dumpObject(vm, @"card.viewModel");
+        media = twdl_mediaFromCard(card);
+    }
 
     // fall back to the player's reported current card
     if (!media) {
