@@ -351,29 +351,75 @@ static NSArray<TWDLItem *> *twdl_itemsForStatusView(id statusView) {
 - (id)initialStatus;
 @end
 
-// The media entity for the video currently shown in the fullscreen immersive player.
-static id twdl_immersiveMedia(UIViewController *container) {
-    id media = nil;
-    id imm = twdl_try(container, @[@"immersive"]);
-    UIView *card = nil;
-    @try { if ([imm respondsToSelector:@selector(getCurrentCardView)]) card = [imm getCurrentCardView]; } @catch (__unused NSException *e) {}
-    if (!card) @try { if ([container respondsToSelector:@selector(getCurrentCardView)]) card = [(id)container getCurrentCardView]; } @catch (__unused NSException *e) {}
-    // card -> viewModel -> media / status.media
-    media = twdl_try(card, @[@"media", @"mediaEntity"]);
+// Pull a media entity out of an immersive card view.
+static id twdl_mediaFromCard(id card) {
+    id media = twdl_try(card, @[@"media", @"mediaEntity"]);
     if (!media) {
         id vm = twdl_try(card, @[@"viewModel"]);
         media = twdl_try(vm, @[@"media", @"mediaEntity"]);
         if (!media) {
             id st = twdl_try(vm, @[@"status", @"statusItem", @"tweet"]);
             NSArray *e = twdl_try(st, @[@"representedMediaEntities", @"mediaEntities", @"allMediaEntities", @"media"]);
-            if ([e isKindOfClass:NSArray.class] && e.count) media = e.firstObject;
+            if ([e isKindOfClass:NSArray.class]) {
+                for (id m in e) { if (twdl_try(m, @[@"videoInfo"])) { media = m; break; } }
+                if (!media && e.count) media = e.firstObject;
+            }
         }
     }
-    if (!media) {                                   // fallback: the status this player opened with
+    return media;
+}
+
+// Recursively collect every ImmersiveCardView in the hierarchy.
+static void twdl_collectCards(UIView *v, NSMutableArray *out) {
+    if (!v) return;
+    NSString *cn = NSStringFromClass([v class]);
+    if ([cn containsString:@"ImmersiveCardView"]) [out addObject:v];
+    for (UIView *sub in v.subviews) twdl_collectCards(sub, out);
+}
+
+// The media entity for the video currently shown in the fullscreen immersive player.
+// The immersive feed is a vertical pager whose "current card" pointer can be stale,
+// so locate the card actually centered on screen by walking the view hierarchy.
+static id twdl_immersiveMedia(UIViewController *container) {
+    id media = nil;
+    UIView *card = nil;
+
+    UIView *root = container.view;
+    if (root) {
+        NSMutableArray<UIView *> *cards = [NSMutableArray array];
+        twdl_collectCards(root, cards);
+        UIWindow *win = root.window;
+        CGFloat screenMid = (win ? win.bounds.size.height : root.bounds.size.height) / 2.0;
+        CGFloat best = CGFLOAT_MAX;
+        for (UIView *c in cards) {
+            if (c.hidden || c.alpha < 0.01 || c.bounds.size.height < 1) continue;
+            CGRect f = [c convertRect:c.bounds toView:win];
+            // only consider cards that actually overlap the screen
+            CGRect screen = win ? win.bounds : root.bounds;
+            if (CGRectIsNull(CGRectIntersection(f, screen))) continue;
+            CGFloat dist = fabs(CGRectGetMidY(f) - screenMid);
+            if (dist < best) { best = dist; card = c; }
+        }
+        TWLOG(@"immersive: %lu card(s), visible=%@", (unsigned long)cards.count, [card class]);
+    }
+
+    if (card) media = twdl_mediaFromCard(card);
+
+    // fall back to the player's reported current card
+    if (!media) {
+        id imm = twdl_try(container, @[@"immersive"]);
+        id cc = nil;
+        @try { if ([imm respondsToSelector:@selector(getCurrentCardView)]) cc = [imm getCurrentCardView]; } @catch (__unused NSException *e) {}
+        if (!cc) @try { if ([container respondsToSelector:@selector(getCurrentCardView)]) cc = [(id)container getCurrentCardView]; } @catch (__unused NSException *e) {}
+        media = twdl_mediaFromCard(cc);
+    }
+
+    // last resort: the status the player opened with
+    if (!media) {
         id status = twdl_try(container, @[@"initialStatus"]);
         NSArray *e = twdl_try(status, @[@"representedMediaEntities", @"mediaEntities", @"allMediaEntities", @"media"]);
         if ([e isKindOfClass:NSArray.class]) {
-            for (id m in e) { if (twdl_try(m, @[@"videoInfo"])) { media = m; break; } }  // prefer the video
+            for (id m in e) { if (twdl_try(m, @[@"videoInfo"])) { media = m; break; } }
             if (!media) media = e.firstObject;
         }
     }
