@@ -14,7 +14,19 @@
 #import <Photos/Photos.h>
 #import <objc/runtime.h>
 
-#define TWLOG(fmt, ...) NSLog(@"[TWDL] " fmt, ##__VA_ARGS__)
+// File logger: unified logging (log show) is dead on this device, so we append to a
+// file inside the app's own sandbox container (readable over SSH as root).
+static void TWFileLog(NSString *s) {
+    static NSString *path; static dispatch_once_t once;
+    dispatch_once(&once, ^{ path = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/twdl.log"]; });
+    NSString *line = [NSString stringWithFormat:@"%@ %@\n", NSDate.date, s];
+    FILE *f = fopen(path.UTF8String, "a");
+    if (f) { fputs(line.UTF8String, f); fclose(f); }
+}
+#define TWLOG(fmt, ...) do { \
+    NSString *_s = [NSString stringWithFormat:(@"[TWDL] " fmt), ##__VA_ARGS__]; \
+    NSLog(@"%@", _s); TWFileLog(_s); \
+} while (0)
 
 // ---------------------------------------------------------------------------
 // Small runtime helpers
@@ -253,7 +265,31 @@ static NSArray *twdl_mediaEntities(id statusView) {
     return m;
 }
 
+static void twdl_probeOnce(id statusView) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        id vm = twdl_try(statusView, @[@"viewModel"]);
+        TWLOG(@"PROBE statusView=%@ viewModel=%@", [statusView class], [vm class]);
+        for (NSString *k in @[@"representedMediaEntities", @"mediaEntities", @"allMediaEntities", @"media", @"status", @"tweet"]) {
+            BOOL resp = [vm respondsToSelector:NSSelectorFromString(k)];
+            id val = nil; @try { if (resp) val = [vm valueForKey:k]; } @catch (__unused NSException *e) {}
+            TWLOG(@"PROBE vm.%@ responds=%d -> %@ (%@)", k, resp, [val class], [val isKindOfClass:NSArray.class] ? @(((NSArray*)val).count) : @"-");
+        }
+        NSArray *m = twdl_mediaEntities(statusView);
+        if (m.count) {
+            id media = m.firstObject;
+            TWLOG(@"PROBE media[0]=%@", [media class]);
+            for (NSString *k in @[@"mediaURL", @"mediaUrl", @"url", @"videoInfo", @"isPlayable", @"mediaType"]) {
+                BOOL resp = [media respondsToSelector:NSSelectorFromString(k)];
+                id val = nil; @try { if (resp) val = [media valueForKey:k]; } @catch (__unused NSException *e) {}
+                TWLOG(@"PROBE media.%@ responds=%d -> %@", k, resp, val);
+            }
+        }
+    });
+}
+
 static BOOL twdl_hasMedia(id statusView) {
+    twdl_probeOnce(statusView);
     return twdl_mediaEntities(statusView).count > 0;
 }
 
