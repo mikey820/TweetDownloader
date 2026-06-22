@@ -369,6 +369,36 @@ static id twdl_mediaFromCard(id card) {
     return media;
 }
 
+// One-time introspection: dump a card's ivars + properties (and ivar object classes).
+static void twdl_dumpObject(id obj, NSString *tag) {
+    if (!obj) { TWLOG(@"DUMP %@ = nil", tag); return; }
+    Class cls = [obj class];
+    TWLOG(@"DUMP %@ class=%@", tag, NSStringFromClass(cls));
+    unsigned int n = 0;
+    Ivar *ivars = class_copyIvarList(cls, &n);
+    for (unsigned int i = 0; i < n; i++) {
+        const char *nm = ivar_getName(ivars[i]);
+        const char *ty = ivar_getTypeEncoding(ivars[i]);
+        NSString *iname = nm ? @(nm) : @"?";
+        NSString *desc = @"";
+        if (ty && ty[0] == '@') {                 // object ivar: read it
+            @try {
+                id val = object_getIvar(obj, ivars[i]);
+                desc = [NSString stringWithFormat:@" -> %@", [val class]];
+            } @catch (__unused NSException *e) {}
+        }
+        TWLOG(@"  ivar %@ (%s)%@", iname, ty ? ty : "?", desc);
+    }
+    if (ivars) free(ivars);
+    n = 0;
+    objc_property_t *props = class_copyPropertyList(cls, &n);
+    for (unsigned int i = 0; i < n; i++) {
+        const char *pn = property_getName(props[i]);
+        TWLOG(@"  prop %s", pn ? pn : "?");
+    }
+    if (props) free(props);
+}
+
 // Recursively collect every ImmersiveCardView in the hierarchy.
 static void twdl_collectCards(UIView *v, NSMutableArray *out) {
     if (!v) return;
@@ -407,7 +437,7 @@ static id twdl_immersiveMedia(UIViewController *container) {
         TWLOG(@"immersive: %lu card(s), screenMid=%.0f visible=%@", (unsigned long)cards.count, screenMid, [card class]);
     }
 
-    if (card) media = twdl_mediaFromCard(card);
+    if (card) { twdl_dumpObject(card, @"immersiveCard"); media = twdl_mediaFromCard(card); }
 
     // fall back to the player's reported current card
     if (!media) {
