@@ -398,6 +398,12 @@ static UIColor *twdl_glyphColor(UIView *v) {
     return nil;
 }
 
+static void twdl_dumpTree(UIView *v, int d) {
+    NSString *pad = [@"" stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
+    TWLOG(@"%@%@ %@", pad, NSStringFromClass(v.class), NSStringFromCGRect(v.frame));
+    for (UIView *s in v.subviews) twdl_dumpTree(s, d+1);
+}
+
 static void twdl_layoutButton(UIView *statusView) {
     TWDLButton *b = (TWDLButton *)twdl_button(statusView);
     if (!b || b.hidden) return;
@@ -446,13 +452,7 @@ static void twdl_layoutButton(UIView *statusView) {
         UIView *top = statusView;
         for (int i = 0; i < 3 && top.superview; i++) top = top.superview;
         TWLOG(@"TREE from %@:", [top class]);
-        __block void (^dump)(UIView *, int);
-        dump = ^(UIView *v, int d) {
-            NSString *pad = [@"" stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
-            TWLOG(@"%@%@ %@", pad, NSStringFromClass(v.class), NSStringFromCGRect(v.frame));
-            for (UIView *s in v.subviews) dump(s, d+1);
-        };
-        dump(top, 0);
+        twdl_dumpTree(top, 0);
     });
 }
 
