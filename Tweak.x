@@ -288,9 +288,28 @@ static void twdl_probeOnce(id statusView) {
     });
 }
 
+static NSArray<TWDLItem *> *twdl_itemsForStatusView(id statusView); // fwd
+
+static void twdl_probeMediaOnce(id statusView, NSArray *entities) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        id media = entities.firstObject;
+        TWLOG(@"MEDIAPROBE media[0]=%@ count=%lu", [media class], (unsigned long)entities.count);
+        for (NSString *k in @[@"mediaURL", @"mediaUrl", @"url", @"videoInfo", @"isPlayable", @"mediaType"]) {
+            BOOL resp = [media respondsToSelector:NSSelectorFromString(k)];
+            id val = nil; @try { if (resp) val = [media valueForKey:k]; } @catch (__unused NSException *e) {}
+            TWLOG(@"MEDIAPROBE media.%@ responds=%d -> %@", k, resp, val);
+        }
+        NSArray<TWDLItem *> *items = twdl_itemsForStatusView(statusView);
+        for (TWDLItem *it in items) TWLOG(@"MEDIAPROBE resolved %@ -> %@", it.kind == TWDLKindVideo ? @"VIDEO" : @"PHOTO", it.url);
+    });
+}
+
 static BOOL twdl_hasMedia(id statusView) {
     twdl_probeOnce(statusView);
-    return twdl_mediaEntities(statusView).count > 0;
+    NSArray *m = twdl_mediaEntities(statusView);
+    if (m.count > 0) twdl_probeMediaOnce(statusView, m);
+    return m.count > 0;
 }
 
 static NSArray<TWDLItem *> *twdl_itemsForStatusView(id statusView) {
