@@ -344,6 +344,43 @@ static NSArray<TWDLItem *> *twdl_itemsForStatusView(id statusView) {
     return items;
 }
 
+// Accessors for the immersive (fullscreen video) player.
+@interface NSObject (TWDLImmersive)
+- (UIView *)getCurrentCardView;
+- (id)immersive;
+- (id)initialStatus;
+@end
+
+// The media entity for the video currently shown in the fullscreen immersive player.
+static id twdl_immersiveMedia(UIViewController *container) {
+    id media = nil;
+    id imm = twdl_try(container, @[@"immersive"]);
+    UIView *card = nil;
+    @try { if ([imm respondsToSelector:@selector(getCurrentCardView)]) card = [imm getCurrentCardView]; } @catch (__unused NSException *e) {}
+    if (!card) @try { if ([container respondsToSelector:@selector(getCurrentCardView)]) card = [(id)container getCurrentCardView]; } @catch (__unused NSException *e) {}
+    // card -> viewModel -> media / status.media
+    media = twdl_try(card, @[@"media", @"mediaEntity"]);
+    if (!media) {
+        id vm = twdl_try(card, @[@"viewModel"]);
+        media = twdl_try(vm, @[@"media", @"mediaEntity"]);
+        if (!media) {
+            id st = twdl_try(vm, @[@"status", @"statusItem", @"tweet"]);
+            NSArray *e = twdl_try(st, @[@"representedMediaEntities", @"mediaEntities", @"allMediaEntities", @"media"]);
+            if ([e isKindOfClass:NSArray.class] && e.count) media = e.firstObject;
+        }
+    }
+    if (!media) {                                   // fallback: the status this player opened with
+        id status = twdl_try(container, @[@"initialStatus"]);
+        NSArray *e = twdl_try(status, @[@"representedMediaEntities", @"mediaEntities", @"allMediaEntities", @"media"]);
+        if ([e isKindOfClass:NSArray.class]) {
+            for (id m in e) { if (twdl_try(m, @[@"videoInfo"])) { media = m; break; } }  // prefer the video
+            if (!media) media = e.firstObject;
+        }
+    }
+    TWLOG(@"immersive media=%@ card=%@", [media class], [card class]);
+    return media;
+}
+
 // The single media entity currently displayed in the fullscreen slideshow viewer.
 static id twdl_currentSlideMedia(UIViewController *vc) {
     id current = twdl_try(vc, @[@"currentSlide"]);
@@ -416,6 +453,45 @@ static void twdl_ensureSlideButton(UIViewController *vc) {
     [root bringSubviewToFront:b];
 }
 
+// Download button for the fullscreen immersive (video) player.
+@interface TWDLImmersiveButton : UIButton
+@property (nonatomic, weak) UIViewController *vc;
+@end
+@implementation TWDLImmersiveButton
+- (void)tap {
+    TWDLItem *it = twdl_itemForMedia(twdl_immersiveMedia(self.vc));
+    [[TWDLManager shared] enqueueItems:(it ? @[it] : @[])];
+}
+@end
+
+static char kImmBtnKey;
+static void twdl_ensureImmersiveButton(UIViewController *vc) {
+    UIView *root = vc.view;
+    if (!root) return;
+    TWDLImmersiveButton *b = objc_getAssociatedObject(vc, &kImmBtnKey);
+    if (!b) {
+        b = [TWDLImmersiveButton buttonWithType:UIButtonTypeSystem];
+        b.vc = vc;
+        if (@available(iOS 13, *)) {
+            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:22 weight:UIImageSymbolWeightSemibold];
+            UIImage *img = [[UIImage systemImageNamed:@"arrow.down.circle.fill" withConfiguration:cfg]
+                            imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+            [b setImage:img forState:UIControlStateNormal];
+        }
+        b.tintColor = UIColor.whiteColor;
+        b.layer.shadowColor = UIColor.blackColor.CGColor;
+        b.layer.shadowOpacity = 0.5; b.layer.shadowRadius = 3; b.layer.shadowOffset = CGSizeZero;
+        [b addTarget:b action:@selector(tap) forControlEvents:UIControlEventTouchUpInside];
+        [root addSubview:b];
+        objc_setAssociatedObject(vc, &kImmBtnKey, b, OBJC_ASSOCIATION_ASSIGN);
+    }
+    CGFloat size = 42;
+    CGFloat top = root.safeAreaInsets.top; if (top < 20) top = 44;
+    // sit a bit lower-left of the top-right corner to avoid the immersive close/more chrome
+    b.frame = CGRectMake(root.bounds.size.width - size - 10, top + 48, size, size);
+    [root bringSubviewToFront:b];
+}
+
 static void twdl_ensureButton(UIView *statusView) {
     UIButton *existing = twdl_button(statusView);
     BOOL has = twdl_hasMedia(statusView);
@@ -474,6 +550,7 @@ static void twdl_layoutButton(UIView *statusView) {
 @interface T1ConversationFocalStatusView : UIView @end
 @interface T1SlideshowStatusView : UIView @end
 @interface T1SlideshowViewController : UIViewController @end
+@interface T1ImmersiveFullScreenViewController : UIViewController @end
 
 %hook T1StandardStatusView
 - (void)setViewModel:(id)vm options:(NSUInteger)o account:(id)a { %orig; twdl_ensureButton(self); }
@@ -500,16 +577,9 @@ static void twdl_layoutButton(UIView *statusView) {
 - (void)viewDidAppear:(BOOL)animated { %orig; twdl_ensureSlideButton(self); }
 %end
 
-// DIAGNOSTIC: log which VC hosts fullscreen video.
-%hook UIViewController
-- (void)viewDidAppear:(BOOL)animated {
-    %orig;
-    NSString *cn = NSStringFromClass(self.class);
-    if ([cn containsString:@"Immersive"] || [cn containsString:@"Video"] || [cn containsString:@"Player"] ||
-        [cn containsString:@"Slideshow"] || [cn containsString:@"Gallery"] || [cn containsString:@"Media"] ||
-        [cn containsString:@"AVPlayer"] || [cn containsString:@"Fullscreen"] || [cn containsString:@"FullScreen"])
-        TWLOG(@"VC appeared: %@", cn);
-}
+%hook T1ImmersiveFullScreenViewController
+- (void)viewDidLayoutSubviews { %orig; twdl_ensureImmersiveButton(self); }
+- (void)viewDidAppear:(BOOL)animated { %orig; twdl_ensureImmersiveButton(self); }
 %end
 
 %ctor {
