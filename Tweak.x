@@ -441,10 +441,18 @@ static void twdl_layoutButton(UIView *statusView) {
 
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        TWLOG(@"LAYOUT caret=%@ frame=%@ btn=%@ color=%@",
-              caret ? NSStringFromClass(caret.class) : @"(none)",
-              caret ? NSStringFromCGRect([caret convertRect:caret.bounds toView:statusView]) : @"-",
-              NSStringFromCGRect(b.frame), color);
+        TWLOG(@"LAYOUT caret=%@ btn=%@", caret ? NSStringFromClass(caret.class) : @"(none)", NSStringFromCGRect(b.frame));
+        // Walk up to the enclosing cell and dump the whole subtree to locate the more/caret button.
+        UIView *top = statusView;
+        for (int i = 0; i < 3 && top.superview; i++) top = top.superview;
+        TWLOG(@"TREE from %@:", [top class]);
+        __block void (^dump)(UIView *, int);
+        dump = ^(UIView *v, int d) {
+            NSString *pad = [@"" stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
+            TWLOG(@"%@%@ %@", pad, NSStringFromClass(v.class), NSStringFromCGRect(v.frame));
+            for (UIView *s in v.subviews) dump(s, d+1);
+        };
+        dump(top, 0);
     });
 }
 
