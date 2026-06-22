@@ -368,9 +368,15 @@ static void twdl_ensureButton(UIView *statusView) {
     if (!existing) {
         TWDLButton *b = [TWDLButton buttonWithType:UIButtonTypeSystem];
         b.statusView = statusView;
+        UIImage *img = nil;
+        if (@available(iOS 13, *)) {
+            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:16 weight:UIImageSymbolWeightSemibold];
+            img = [UIImage systemImageNamed:@"arrow.down.circle" withConfiguration:cfg];
+        }
+        [b setImage:img forState:UIControlStateNormal];
+        b.tintColor = [UIColor colorWithRed:0.45 green:0.55 blue:0.6 alpha:1.0];
         [b addTarget:b action:@selector(tap) forControlEvents:UIControlEventTouchUpInside];
         b.translatesAutoresizingMaskIntoConstraints = YES;
-        b.adjustsImageWhenHighlighted = YES;
         [statusView addSubview:b];
         objc_setAssociatedObject(statusView, &kBtnKey, b, OBJC_ASSOCIATION_ASSIGN); // view retains it as subview
         existing = b;
@@ -379,102 +385,31 @@ static void twdl_ensureButton(UIView *statusView) {
     [statusView bringSubviewToFront:existing];
 }
 
-static UIView *twdl_findByClassSubstr(UIView *root, NSString *sub) {
-    for (UIView *v in root.subviews) {
-        if ([NSStringFromClass(v.class) containsString:sub]) return v;
-        UIView *d = twdl_findByClassSubstr(v, sub);
-        if (d) return d;
-    }
-    return nil;
-}
-
-// Collect the rightmost small button-like control (the "..." more button) in the header.
-static void twdl_collectMore(UIView *root, UIView *coord, UIView **best, CGFloat *bestMaxX) {
+// Find the caret ("..."/chevron) subview so we can sit just to its left.
+static UIView *twdl_findCaret(UIView *root) {
     for (UIView *v in root.subviews) {
         NSString *cn = NSStringFromClass(v.class);
-        BOOL cand = [v isKindOfClass:UIButton.class] || [cn containsString:@"Dismiss"] || [cn containsString:@"Caret"];
-        if (cand) {
-            CGRect f = [v convertRect:v.bounds toView:coord];
-            if (f.size.width > 8 && f.size.width < 44 && f.size.height > 8 && f.size.height < 44) {
-                if (CGRectGetMaxX(f) > *bestMaxX) { *bestMaxX = CGRectGetMaxX(f); *best = v; }
-            }
-        }
-        twdl_collectMore(v, coord, best, bestMaxX);
+        if ([cn containsString:@"Caret"] || [cn containsString:@"caret"]) return v;
+        UIView *deep = twdl_findCaret(v);
+        if (deep) return deep;
     }
-}
-
-// Find the top-right "..." more button (TFNDismissButton inside TTAStatusAuthorView).
-static UIView *twdl_findCaret(UIView *statusView) {
-    UIView *author = twdl_findByClassSubstr(statusView, @"AuthorView");
-    UIView *scope = author ?: statusView;
-    UIView *best = nil; CGFloat mx = -1;
-    twdl_collectMore(scope, statusView, &best, &mx);
-    return best;
-}
-
-// Copy the caret glyph's actual color so we match the theme (light/dim/dark) exactly.
-static UIColor *twdl_glyphColor(UIView *v) {
-    if ([v isKindOfClass:UILabel.class]) { UIColor *c = ((UILabel *)v).textColor; if (c) return c; }
-    if ([v isKindOfClass:UIImageView.class]) { UIColor *c = v.tintColor; if (c) return c; }
-    for (UIView *s in v.subviews) { UIColor *c = twdl_glyphColor(s); if (c) return c; }
     return nil;
-}
-
-static void twdl_dumpTree(UIView *v, int d) {
-    NSString *pad = [@"" stringByPaddingToLength:d*2 withString:@" " startingAtIndex:0];
-    TWLOG(@"%@%@ %@", pad, NSStringFromClass(v.class), NSStringFromCGRect(v.frame));
-    for (UIView *s in v.subviews) twdl_dumpTree(s, d+1);
 }
 
 static void twdl_layoutButton(UIView *statusView) {
-    TWDLButton *b = (TWDLButton *)twdl_button(statusView);
+    UIButton *b = twdl_button(statusView);
     if (!b || b.hidden) return;
+    CGFloat size = 30;
+    CGFloat y = 6, rightInset = 8;
     UIView *caret = twdl_findCaret(statusView);
-
-    // Match the caret's size/baseline so the pair reads as native chrome.
-    CGFloat box = 24;       // tap box, like the caret hit area
-    CGFloat glyph = 18;     // SF Symbol point size
-    CGFloat y, rightEdge;
-    UIColor *color = nil;
+    CGFloat right = statusView.bounds.size.width - rightInset;
     if (caret && caret.superview) {
         CGRect cf = [caret convertRect:caret.bounds toView:statusView];
-        box = MAX(cf.size.height, 22);
-        glyph = MIN(box - 4, 19);
-        y = cf.origin.y + (cf.size.height - box) / 2.0;
-        rightEdge = cf.origin.x;                 // our right edge meets caret's left edge
-        color = twdl_glyphColor(caret);
-    } else {
-        y = 6;
-        rightEdge = statusView.bounds.size.width - 8;
+        right = cf.origin.x - 2;      // sit just left of the caret
+        y = cf.origin.y + (cf.size.height - size) / 2.0;
     }
-    if (!color) color = UIColor.secondaryLabelColor;
-
-    // (re)build the glyph at the matched size, recolor to match the caret each pass.
-    static char kGlyphSizeKey;
-    NSNumber *cur = objc_getAssociatedObject(b, &kGlyphSizeKey);
-    if (!cur || cur.doubleValue != glyph) {
-        if (@available(iOS 13, *)) {
-            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:glyph weight:UIImageSymbolWeightRegular];
-            UIImage *img = [[UIImage systemImageNamed:@"arrow.down.circle" withConfiguration:cfg]
-                            imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
-            [b setImage:img forState:UIControlStateNormal];
-        }
-        objc_setAssociatedObject(b, &kGlyphSizeKey, @(glyph), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
-    b.tintColor = color;
-
-    CGFloat gap = 2;        // a hair of breathing room, like Twitter's own action spacing
-    b.frame = CGRectMake(rightEdge - box - gap, y, box, box);
+    b.frame = CGRectMake(right - size, y, size, size);
     [statusView bringSubviewToFront:b];
-
-    static int dumps = 0;
-    if (!caret && dumps < 3 && statusView.bounds.size.width > 350) {
-        dumps++;
-        UIView *cell = statusView;
-        while (cell.superview && ![NSStringFromClass(cell.class) containsString:@"Cell"]) cell = cell.superview;
-        TWLOG(@"=== DUMP %d cell=%@ statusView=%p frame=%@ ===", dumps, [cell class], statusView, NSStringFromCGRect(statusView.frame));
-        twdl_dumpTree(cell, 0);
-    }
 }
 
 // ---- Hooks: one macro-ish block per status view class ----
