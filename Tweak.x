@@ -391,16 +391,20 @@ static id twdl_immersiveMedia(UIViewController *container) {
         UIWindow *win = root.window;
         CGFloat screenMid = (win ? win.bounds.size.height : root.bounds.size.height) / 2.0;
         CGFloat best = CGFLOAT_MAX;
+        CGRect screen = win ? win.bounds : root.bounds;
         for (UIView *c in cards) {
-            if (c.hidden || c.alpha < 0.01 || c.bounds.size.height < 1) continue;
             CGRect f = [c convertRect:c.bounds toView:win];
+            id m = twdl_mediaFromCard(c);
+            NSString *u = twdl_try(m, @[@"mediaURL"]);
+            TWLOG(@"immersive card frame=%@ hidden=%d alpha=%.2f url=%@",
+                  NSStringFromCGRect(f), c.hidden, c.alpha, u);
+            if (c.hidden || c.alpha < 0.01 || c.bounds.size.height < 1) continue;
             // only consider cards that actually overlap the screen
-            CGRect screen = win ? win.bounds : root.bounds;
             if (CGRectIsNull(CGRectIntersection(f, screen))) continue;
             CGFloat dist = fabs(CGRectGetMidY(f) - screenMid);
             if (dist < best) { best = dist; card = c; }
         }
-        TWLOG(@"immersive: %lu card(s), visible=%@", (unsigned long)cards.count, [card class]);
+        TWLOG(@"immersive: %lu card(s), screenMid=%.0f visible=%@", (unsigned long)cards.count, screenMid, [card class]);
     }
 
     if (card) media = twdl_mediaFromCard(card);
