@@ -379,15 +379,37 @@ static void twdl_ensureButton(UIView *statusView) {
     [statusView bringSubviewToFront:existing];
 }
 
-// Find the caret ("..."/more) subview so we can sit just to its left and mimic it.
-static UIView *twdl_findCaret(UIView *root) {
+static UIView *twdl_findByClassSubstr(UIView *root, NSString *sub) {
     for (UIView *v in root.subviews) {
-        NSString *cn = NSStringFromClass(v.class);
-        if ([cn containsString:@"Caret"] || [cn containsString:@"caret"]) return v;
-        UIView *deep = twdl_findCaret(v);
-        if (deep) return deep;
+        if ([NSStringFromClass(v.class) containsString:sub]) return v;
+        UIView *d = twdl_findByClassSubstr(v, sub);
+        if (d) return d;
     }
     return nil;
+}
+
+// Collect the rightmost small button-like control (the "..." more button) in the header.
+static void twdl_collectMore(UIView *root, UIView *coord, UIView **best, CGFloat *bestMaxX) {
+    for (UIView *v in root.subviews) {
+        NSString *cn = NSStringFromClass(v.class);
+        BOOL cand = [v isKindOfClass:UIButton.class] || [cn containsString:@"Dismiss"] || [cn containsString:@"Caret"];
+        if (cand) {
+            CGRect f = [v convertRect:v.bounds toView:coord];
+            if (f.size.width > 8 && f.size.width < 44 && f.size.height > 8 && f.size.height < 44) {
+                if (CGRectGetMaxX(f) > *bestMaxX) { *bestMaxX = CGRectGetMaxX(f); *best = v; }
+            }
+        }
+        twdl_collectMore(v, coord, best, bestMaxX);
+    }
+}
+
+// Find the top-right "..." more button (TFNDismissButton inside TTAStatusAuthorView).
+static UIView *twdl_findCaret(UIView *statusView) {
+    UIView *author = twdl_findByClassSubstr(statusView, @"AuthorView");
+    UIView *scope = author ?: statusView;
+    UIView *best = nil; CGFloat mx = -1;
+    twdl_collectMore(scope, statusView, &best, &mx);
+    return best;
 }
 
 // Copy the caret glyph's actual color so we match the theme (light/dim/dark) exactly.
