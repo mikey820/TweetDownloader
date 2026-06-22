@@ -364,16 +364,25 @@ static void twdl_layoutButton(UIView *statusView) {
 @interface T1ConversationFocalStatusView : UIView @end
 @interface T1SlideshowStatusView : UIView @end
 
-#define TWDL_HOOK_STATUSVIEW(CLS) \
-%hook CLS \
-- (void)setViewModel:(id)vm options:(NSUInteger)o account:(id)a { %orig; twdl_ensureButton(self); } \
-- (void)layoutSubviews { %orig; twdl_ensureButton(self); twdl_layoutButton(self); } \
+%hook T1StandardStatusView
+- (void)setViewModel:(id)vm options:(NSUInteger)o account:(id)a { %orig; twdl_ensureButton(self); }
+- (void)layoutSubviews { %orig; twdl_ensureButton(self); twdl_layoutButton(self); }
 %end
 
-TWDL_HOOK_STATUSVIEW(T1StandardStatusView)
-TWDL_HOOK_STATUSVIEW(T1TweetDetailsFocalStatusView)
-TWDL_HOOK_STATUSVIEW(T1ConversationFocalStatusView)
-TWDL_HOOK_STATUSVIEW(T1SlideshowStatusView)
+%hook T1TweetDetailsFocalStatusView
+- (void)setViewModel:(id)vm options:(NSUInteger)o account:(id)a { %orig; twdl_ensureButton(self); }
+- (void)layoutSubviews { %orig; twdl_ensureButton(self); twdl_layoutButton(self); }
+%end
+
+%hook T1ConversationFocalStatusView
+- (void)setViewModel:(id)vm options:(NSUInteger)o account:(id)a { %orig; twdl_ensureButton(self); }
+- (void)layoutSubviews { %orig; twdl_ensureButton(self); twdl_layoutButton(self); }
+%end
+
+%hook T1SlideshowStatusView
+- (void)setViewModel:(id)vm options:(NSUInteger)o account:(id)a { %orig; twdl_ensureButton(self); }
+- (void)layoutSubviews { %orig; twdl_ensureButton(self); twdl_layoutButton(self); }
+%end
 
 %ctor {
     TWLOG(@"TweetDownloader loaded into %@", NSBundle.mainBundle.bundleIdentifier);
