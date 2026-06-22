@@ -368,15 +368,9 @@ static void twdl_ensureButton(UIView *statusView) {
     if (!existing) {
         TWDLButton *b = [TWDLButton buttonWithType:UIButtonTypeSystem];
         b.statusView = statusView;
-        UIImage *img = nil;
-        if (@available(iOS 13, *)) {
-            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:16 weight:UIImageSymbolWeightSemibold];
-            img = [UIImage systemImageNamed:@"arrow.down.circle" withConfiguration:cfg];
-        }
-        [b setImage:img forState:UIControlStateNormal];
-        b.tintColor = [UIColor colorWithRed:0.45 green:0.55 blue:0.6 alpha:1.0];
         [b addTarget:b action:@selector(tap) forControlEvents:UIControlEventTouchUpInside];
         b.translatesAutoresizingMaskIntoConstraints = YES;
+        b.adjustsImageWhenHighlighted = YES;
         [statusView addSubview:b];
         objc_setAssociatedObject(statusView, &kBtnKey, b, OBJC_ASSOCIATION_ASSIGN); // view retains it as subview
         existing = b;
@@ -385,7 +379,7 @@ static void twdl_ensureButton(UIView *statusView) {
     [statusView bringSubviewToFront:existing];
 }
 
-// Find the caret ("..."/chevron) subview so we can sit just to its left.
+// Find the caret ("..."/more) subview so we can sit just to its left and mimic it.
 static UIView *twdl_findCaret(UIView *root) {
     for (UIView *v in root.subviews) {
         NSString *cn = NSStringFromClass(v.class);
@@ -396,20 +390,62 @@ static UIView *twdl_findCaret(UIView *root) {
     return nil;
 }
 
+// Copy the caret glyph's actual color so we match the theme (light/dim/dark) exactly.
+static UIColor *twdl_glyphColor(UIView *v) {
+    if ([v isKindOfClass:UILabel.class]) { UIColor *c = ((UILabel *)v).textColor; if (c) return c; }
+    if ([v isKindOfClass:UIImageView.class]) { UIColor *c = v.tintColor; if (c) return c; }
+    for (UIView *s in v.subviews) { UIColor *c = twdl_glyphColor(s); if (c) return c; }
+    return nil;
+}
+
 static void twdl_layoutButton(UIView *statusView) {
-    UIButton *b = twdl_button(statusView);
+    TWDLButton *b = (TWDLButton *)twdl_button(statusView);
     if (!b || b.hidden) return;
-    CGFloat size = 30;
-    CGFloat y = 6, rightInset = 8;
     UIView *caret = twdl_findCaret(statusView);
-    CGFloat right = statusView.bounds.size.width - rightInset;
+
+    // Match the caret's size/baseline so the pair reads as native chrome.
+    CGFloat box = 24;       // tap box, like the caret hit area
+    CGFloat glyph = 18;     // SF Symbol point size
+    CGFloat y, rightEdge;
+    UIColor *color = nil;
     if (caret && caret.superview) {
         CGRect cf = [caret convertRect:caret.bounds toView:statusView];
-        right = cf.origin.x - 2;      // sit just left of the caret
-        y = cf.origin.y + (cf.size.height - size) / 2.0;
+        box = MAX(cf.size.height, 22);
+        glyph = MIN(box - 4, 19);
+        y = cf.origin.y + (cf.size.height - box) / 2.0;
+        rightEdge = cf.origin.x;                 // our right edge meets caret's left edge
+        color = twdl_glyphColor(caret);
+    } else {
+        y = 6;
+        rightEdge = statusView.bounds.size.width - 8;
     }
-    b.frame = CGRectMake(right - size, y, size, size);
+    if (!color) color = UIColor.secondaryLabelColor;
+
+    // (re)build the glyph at the matched size, recolor to match the caret each pass.
+    static char kGlyphSizeKey;
+    NSNumber *cur = objc_getAssociatedObject(b, &kGlyphSizeKey);
+    if (!cur || cur.doubleValue != glyph) {
+        if (@available(iOS 13, *)) {
+            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:glyph weight:UIImageSymbolWeightRegular];
+            UIImage *img = [[UIImage systemImageNamed:@"arrow.down.circle" withConfiguration:cfg]
+                            imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+            [b setImage:img forState:UIControlStateNormal];
+        }
+        objc_setAssociatedObject(b, &kGlyphSizeKey, @(glyph), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    b.tintColor = color;
+
+    CGFloat gap = 2;        // a hair of breathing room, like Twitter's own action spacing
+    b.frame = CGRectMake(rightEdge - box - gap, y, box, box);
     [statusView bringSubviewToFront:b];
+
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        TWLOG(@"LAYOUT caret=%@ frame=%@ btn=%@ color=%@",
+              caret ? NSStringFromClass(caret.class) : @"(none)",
+              caret ? NSStringFromCGRect([caret convertRect:caret.bounds toView:statusView]) : @"-",
+              NSStringFromCGRect(b.frame), color);
+    });
 }
 
 // ---- Hooks: one macro-ish block per status view class ----
