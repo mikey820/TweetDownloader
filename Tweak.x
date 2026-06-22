@@ -445,15 +445,14 @@ static void twdl_layoutButton(UIView *statusView) {
     b.frame = CGRectMake(rightEdge - box - gap, y, box, box);
     [statusView bringSubviewToFront:b];
 
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        TWLOG(@"LAYOUT caret=%@ btn=%@", caret ? NSStringFromClass(caret.class) : @"(none)", NSStringFromCGRect(b.frame));
-        // Walk up to the enclosing cell and dump the whole subtree to locate the more/caret button.
-        UIView *top = statusView;
-        for (int i = 0; i < 3 && top.superview; i++) top = top.superview;
-        TWLOG(@"TREE from %@:", [top class]);
-        twdl_dumpTree(top, 0);
-    });
+    static int dumps = 0;
+    if (!caret && dumps < 3 && statusView.bounds.size.width > 350) {
+        dumps++;
+        UIView *cell = statusView;
+        while (cell.superview && ![NSStringFromClass(cell.class) containsString:@"Cell"]) cell = cell.superview;
+        TWLOG(@"=== DUMP %d cell=%@ statusView=%p frame=%@ ===", dumps, [cell class], statusView, NSStringFromCGRect(statusView.frame));
+        twdl_dumpTree(cell, 0);
+    }
 }
 
 // ---- Hooks: one macro-ish block per status view class ----
