@@ -456,7 +456,8 @@ static void twdl_layoutButton(UIView *statusView) {
         }
         objc_setAssociatedObject(b, &kGlyphSizeKey, @(glyph), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
-    b.tintColor = color;
+    b.tintColor = UIColor.whiteColor;            // DEBUG
+    b.backgroundColor = UIColor.redColor;        // DEBUG: make it unmistakable
     b.frame = CGRectMake(rightEdge - box, y, box, box);
     [statusView bringSubviewToFront:b];
 
