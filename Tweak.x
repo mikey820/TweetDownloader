@@ -263,8 +263,6 @@ static NSArray<TWDLItem *> *twdl_itemsForStatusView(id statusView) {
     for (id media in entities) {
         // video?
         id vinfo = twdl_try(media, @[@"videoInfo"]);
-        BOOL playable = NO;
-        @try { if ([media respondsToSelector:@selector(isPlayable)]) playable = [[media valueForKey:@"isPlayable"] boolValue]; } @catch (__unused NSException *e) {}
         if (vinfo) {
             NSURL *vurl = nil;
             @try {
@@ -360,6 +358,12 @@ static void twdl_layoutButton(UIView *statusView) {
 }
 
 // ---- Hooks: one macro-ish block per status view class ----
+// Minimal interface decls so Logos can type `self` for each hooked class.
+@interface T1StandardStatusView : UIView @end
+@interface T1TweetDetailsFocalStatusView : UIView @end
+@interface T1ConversationFocalStatusView : UIView @end
+@interface T1SlideshowStatusView : UIView @end
+
 #define TWDL_HOOK_STATUSVIEW(CLS) \
 %hook CLS \
 - (void)setViewModel:(id)vm options:(NSUInteger)o account:(id)a { %orig; twdl_ensureButton(self); } \
