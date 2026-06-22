@@ -368,6 +368,13 @@ static void twdl_ensureButton(UIView *statusView) {
     if (!existing) {
         TWDLButton *b = [TWDLButton buttonWithType:UIButtonTypeSystem];
         b.statusView = statusView;
+        if (@available(iOS 13, *)) {
+            UIImageSymbolConfiguration *cfg = [UIImageSymbolConfiguration configurationWithPointSize:16 weight:UIImageSymbolWeightRegular];
+            UIImage *img = [[UIImage systemImageNamed:@"arrow.down.circle" withConfiguration:cfg]
+                            imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+            [b setImage:img forState:UIControlStateNormal];
+        }
+        b.tintColor = UIColor.secondaryLabelColor;
         [b addTarget:b action:@selector(tap) forControlEvents:UIControlEventTouchUpInside];
         b.translatesAutoresizingMaskIntoConstraints = YES;
         [statusView addSubview:b];
@@ -452,6 +459,16 @@ static void twdl_layoutButton(UIView *statusView) {
     b.tintColor = color;
     b.frame = CGRectMake(rightEdge - box, y, box, box);
     [statusView bringSubviewToFront:b];
+
+    static int dumps = 0;
+    if (dumps < 4) {
+        dumps++;
+        TWLOG(@"LAYOUT more=%@ moreFrame=%@ btn=%@ color=%@ imgNil=%d svBounds=%@",
+              more ? NSStringFromClass(more.class) : @"(none)",
+              more ? NSStringFromCGRect([more convertRect:more.bounds toView:statusView]) : @"-",
+              NSStringFromCGRect(b.frame), color, ([b imageForState:UIControlStateNormal] == nil),
+              NSStringFromCGRect(statusView.bounds));
+    }
 }
 
 // ---- Hooks: one macro-ish block per status view class ----
